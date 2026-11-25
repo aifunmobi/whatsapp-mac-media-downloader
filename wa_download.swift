@@ -285,6 +285,15 @@ for c in chats {
   }
   while stale < 10 && oldest > cutoff {
     _ = closeViewer()
+    if !albumMode && (attr(ax, "AXWindows") as? [AXUIElement] ?? []).isEmpty {   // window moved to another desktop: wait, then carry on where we were
+      nap(2.0)
+      if (attr(ax, "AXWindows") as? [AXUIElement] ?? []).isEmpty {
+        print("  WhatsApp is not on this desktop: waiting")
+        while (attr(ax, "AXWindows") as? [AXUIElement] ?? []).isEmpty { nap(3.0) }
+        print("  WhatsApp is back"); nap(2.0)
+        if let t = first(ax, id: "ChatMessagesTableView") { table = t }
+      }
+    }
     if !chatStillOpen() {   // a press took us somewhere else: block that bubble, come back, and scroll to where we were
       losses += 1
       print("  LOST the chat after pressing: \(lastPressed.prefix(120))")

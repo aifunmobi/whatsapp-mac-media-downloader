@@ -21,6 +21,11 @@ WhatsApp has no "download all" button, and its auto-download setting only applie
 
 The tool can only press the download arrow. It cannot recover anything that WhatsApp itself cannot fetch.
 
+> [!IMPORTANT]
+> **Your real safeguard is a recent WhatsApp cloud backup on the phone**, not this tool: iCloud on iPhone, your Google account on Android (WhatsApp → Settings → Chats → Chat Backup). The Mac app is a **mirror of the phone, not a backup**. If chats are lost on the phone, the Mac re-syncs to match, and this tool can only re-download what WhatsApp can still fetch.
+
+Once media is downloaded, it sits as ordinary files in WhatsApp's folder on the Mac, `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/Message/Media/`. You can copy that folder somewhere else as an extra copy.
+
 ## How it works
 
 1. It reads WhatsApp's own database on your Mac to learn which chats have files that were never downloaded, and at what minute each one was sent. The database is opened **read-only**; nothing in it is changed.
@@ -145,11 +150,11 @@ It is slow. On the first real run, with roughly 7,900 missing items across about
 These come from the one long run this tool has had.
 
 1. **It is slow** (see the numbers above). Long stretches of scrolling with no downloads are normal: it is passing parts that are already done.
-2. **Mouse-free mode only works while the WhatsApp window is on the desktop (Space) currently showing.** Switch to another Space or a full-screen app and the tool cannot see WhatsApp; it waits and resumes when the window is back. Do not close or minimise the window.
+2. **Mouse-free mode only works while the WhatsApp window is on the desktop (Space) currently showing.** Switch to another Space or a full-screen app and the tool cannot see WhatsApp; it pauses and carries on from the same place when the window is back. Do not close or minimise the window. Earlier versions misread a desktop switch as a press gone wrong: they re-scrolled the chat from the newest message and could wrongly put the last pressed item on the block list.
 3. **WhatsApp sometimes stops responding to presses in the chat list**, and every chat is reported as "chat did not open" or "not found". The cause was never pinned down; it seemed to follow opening the viewer on items that were already downloaded. `run.sh` notices it (many skipped chats) and quits and reopens WhatsApp, which costs time.
 4. **Flicker.** Pressing an item that is already downloaded opens it in the viewer or a Quick Look window, which the tool closes again. Such items are remembered in `already-there.txt` so they are not pressed twice.
 5. **The missing count never reaches zero.** A sent photo's HD copy stays "missing" in the database even when the standard copy is there.
-6. **Some bubbles open another screen instead of downloading** (channel forwards, some GIFs and links). The tool backs out and puts them on a block list, `blocked.txt`.
+6. **Some bubbles open another screen instead of downloading** (channel forwards, some GIFs and links). The tool backs out and puts them on a block list, `blocked.txt`. If that file contains ordinary photos or voice messages (left by an earlier version, see point 2), delete the file; the tool builds it up again.
 7. **Chats not in the main chat list are skipped:** archived chats, and sometimes the chat with yourself or groups shown under a different name.
 8. **Two chats with the same display name** cannot be told apart reliably.
 9. **Voice messages are matched by time only**, because their Accessibility label does not state the sender.
