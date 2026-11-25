@@ -7,6 +7,20 @@ After you restore WhatsApp or link your Mac again, the Mac app shows old photos,
 
 **Status:** the pressing and scrolling logic was used on one Mac to fetch several thousand files. The `--types` choice, the `--count` option and the merged `run.sh` were added while preparing this public version and **have not yet been tried against a live WhatsApp**. Run with `--dry` first and please report problems.
 
+## When you need this
+
+The typical case: you restored WhatsApp on your iPhone from a backup, for example after reinstalling it or moving to a new phone. On the phone, all photos and files came back. The WhatsApp app on your Mac then synced the chat history again, but **only the messages**. Every photo, GIF, voice message and document in older chats shows as a blurred preview or placeholder with a download arrow, and each one has to be clicked by hand to fetch it.
+
+WhatsApp has no "download all" button, and its auto-download setting only applies to newly arriving messages. So thousands of items across dozens of chats would each need a click. This tool does that clicking.
+
+**It is not the right tool when:**
+
+- the media is missing **on the phone too**,
+- the **messages themselves** are missing on the Mac,
+- the files are **no longer available from WhatsApp**, such as very old media that the sender's phone no longer has.
+
+The tool can only press the download arrow. It cannot recover anything that WhatsApp itself cannot fetch.
+
 ## How it works
 
 1. It reads WhatsApp's own database on your Mac to learn which chats have files that were never downloaded, and at what minute each one was sent. The database is opened **read-only**; nothing in it is changed.
