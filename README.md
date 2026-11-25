@@ -97,8 +97,8 @@ Then run it for real, the last 3 months, everything except videos:
 | `--types LIST` | What to download: any of `images`, `gifs`, `files` (documents), `voice`, `video`, separated by commas, or `all`. Default: everything except video. | `./wa_download --types images,gifs` |
 | `--months N` | How far back to go. Default: 3. | `./wa_download --months 12` |
 | `--chat "Name"` | Only chats whose name contains this text. | `./wa_download --chat "Jane Doe"` |
-| `--albums` | Album pass with the real mouse (see below). | `./wa_download --albums` |
-| `--all` | Single items and albums in one pass, with the real mouse. | `./wa_download --all --months 6` |
+| `--albums` | Album pass. **Takes over the mouse and the screen**: albums (grid tiles of 2+ photos) only react to real clicks, so the pointer moves by itself and the Mac cannot be used meanwhile (see below). | `./wa_download --albums` |
+| `--all` | Single items and albums in one pass. **Also takes over the mouse and the screen.** | `./wa_download --all --months 6` |
 | `--dry` | Press nothing; print what would be pressed. | `./wa_download --dry` |
 | `--count` | Print the number of missing files and stop. | `./wa_download --count --months 12` |
 | `--limit N` | With `--albums`/`--all`: stop a chat after N album clicks. For testing. | `./wa_download --albums --limit 2` |
@@ -108,11 +108,14 @@ Videos are left out by default because they are large; add them with `--types al
 
 ### Two modes
 
-**Default: mouse-free.** Nothing touches your mouse or keyboard, so you can keep working in other apps. Conditions: the WhatsApp window must stay **on the desktop (Space) you are currently on**, not minimised and not closed. It may be hidden behind other windows. If you switch to another desktop the tool waits until you come back. This mode cannot open multi-picture **albums**; it lists them as "ALBUM not clicked".
+> [!IMPORTANT]
+> **Multi-picture albums need the tool to take over your mouse and screen.** An album is the small grid tile WhatsApp makes from 2 or more photos sent together. Album tiles do not respond to background Accessibility presses, so the tool has to click them with the real mouse pointer. While that runs, WhatsApp must stay in front and visible, the pointer moves by itself, and **the Mac cannot be used for anything else**. Run it when you are away, for example overnight.
 
-**`--albums` (or `--all`): real mouse clicks.** Albums ignore the Accessibility press and need a true click. In this mode the tool **takes over the pointer**, brings WhatsApp to the front and clicks and scrolls for real. Do not use the Mac while it runs; moving the mouse can send a click to the wrong place. `--albums` handles albums only; `--all` does single items and albums together. An album is clicked only when every kind in it (photos, videos) is in your `--types` list.
+**Default: mouse-free.** This covers everything except albums: single photos, GIFs, voice messages, documents and single videos. Nothing touches your mouse or keyboard, so you can keep using the Mac. Conditions: the WhatsApp window must stay open **on the desktop (Space) you are currently on**, not minimised and not closed. It may be hidden behind other windows. If you switch to another desktop or a full-screen app the tool waits until the window is back. Albums are listed as "ALBUM not clicked".
 
-A good routine: a default run first, then `--albums` when you can leave the Mac alone.
+**Album mode: `--albums` (or `--all`).** The tool brings WhatsApp to the front and clicks and scrolls with the real pointer. Do not touch the Mac while it runs; moving the mouse can send a click to the wrong place. `--albums` handles albums only; `--all` does single items and albums together. An album is clicked only when every kind in it (photos, videos) is in your `--types` list.
+
+**Recommended order:** run the mouse-free pass first, while you work. Run the album pass later, when you are away from the Mac.
 
 ### Running unattended (overnight)
 
@@ -135,7 +138,27 @@ Stop it at any time with Ctrl-C.
 
 ### How long it takes
 
-It works at roughly the speed of a patient person: about a second per file, plus scrolling. A few hundred files take minutes; several thousand files across a year of busy chats take **many hours**, so run it overnight. The downloads themselves continue in WhatsApp after a press, and a second pass usually picks up what the first one missed.
+It is slow. On the first real run, with roughly 7,900 missing items across about 50 chats, about 2,500 were fetched in the first 4 hours. Expect one or more nights for a large history. A second pass usually picks up what the first one missed.
+
+## Caveats from real use
+
+These come from the one long run this tool has had.
+
+1. **It is slow** (see the numbers above). Long stretches of scrolling with no downloads are normal: it is passing parts that are already done.
+2. **Mouse-free mode only works while the WhatsApp window is on the desktop (Space) currently showing.** Switch to another Space or a full-screen app and the tool cannot see WhatsApp; it waits and resumes when the window is back. Do not close or minimise the window.
+3. **WhatsApp sometimes stops responding to presses in the chat list**, and every chat is reported as "chat did not open" or "not found". The cause was never pinned down; it seemed to follow opening the viewer on items that were already downloaded. `run.sh` notices it (many skipped chats) and quits and reopens WhatsApp, which costs time.
+4. **Flicker.** Pressing an item that is already downloaded opens it in the viewer or a Quick Look window, which the tool closes again. Such items are remembered in `already-there.txt` so they are not pressed twice.
+5. **The missing count never reaches zero.** A sent photo's HD copy stays "missing" in the database even when the standard copy is there.
+6. **Some bubbles open another screen instead of downloading** (channel forwards, some GIFs and links). The tool backs out and puts them on a block list, `blocked.txt`.
+7. **Chats not in the main chat list are skipped:** archived chats, and sometimes the chat with yourself or groups shown under a different name.
+8. **Two chats with the same display name** cannot be told apart reliably.
+9. **Voice messages are matched by time only**, because their Accessibility label does not state the sender.
+10. **Matching depends on WhatsApp's exact wording.** Messages from a previous year carry the year in their label, and today's and yesterday's carry only a time; this is handled. Any change in WhatsApp's wording, or a system language other than English, breaks matching.
+11. **Stickers and link previews are not downloaded.**
+12. **The approach is fragile.** An early version closed WhatsApp's main window by mistake when the app was too busy to answer. That is fixed, but check on a long run now and then.
+13. **Measure progress by the missing count, not by presses.** Compare `./wa_download --count` before and after.
+14. **Do not use WhatsApp on the Mac while it runs.** In album mode, do not use the Mac at all.
+15. **Keep the Mac awake and the phone online.** `run.sh` keeps the Mac awake with `caffeinate`; the phone should stay connected so WhatsApp can fetch the files.
 
 ## Limitations
 
