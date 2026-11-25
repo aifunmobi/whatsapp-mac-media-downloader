@@ -189,6 +189,10 @@ These come from the one long run this tool has had.
 | A message keeps being skipped that should download | Delete `blocked.txt` and `already-there.txt` to make the tool forget what it learned. |
 | `xcrun: error` or `swiftc: command not found` when building | Run `xcode-select --install`. |
 
+## Mini-rant
+
+Shame on WhatsApp for making switching between phones and restoring unnecessarily difficult and buggy!
+
 ## License
 
 [MIT](LICENSE). Provided "as is", without warranty of any kind.
