@@ -9,8 +9,9 @@ Usage: wa_download [options]
 
 Presses the download arrow on media that WhatsApp for Mac has not downloaded yet.
 
-  --types LIST   What to download: a comma list of images, gifs, files, voice, video
-                 (files = documents and voice messages), or "all". Default: images,gifs,files,voice
+  --types LIST   What to download: a comma list of images, gifs, files, voice, stickers, video
+                 (files = documents and voice messages), or "all".
+                 Default: images,gifs,files,voice,stickers
   --months N     How far back to go, in months. Default: 3
   --chat "Name"  Only chats whose name contains this text
   --albums       Album pass: click multi-picture albums with the REAL mouse. Takes over
@@ -18,7 +19,8 @@ Presses the download arrow on media that WhatsApp for Mac has not downloaded yet
                  Single items are left for the default (mouse-free) pass.
   --all          Single items and albums in one pass (also uses the real mouse)
   --dry          Press nothing; only print what would be pressed
-  --count        Print how many files are missing and exit (WhatsApp is not touched)
+  --count        Print how many files are missing, in total and by type, and exit
+                 (WhatsApp is not touched)
   --limit N      With --albums/--all: stop a chat after N album clicks (for testing)
   --no-video     Remove video from the list (older spelling, kept for compatibility)
   --help         Show this text
@@ -26,10 +28,10 @@ Presses the download arrow on media that WhatsApp for Mac has not downloaded yet
 Without --albums or --all nothing touches the mouse or keyboard, but the WhatsApp window
 must stay on the current desktop (Space), not minimised or closed.
 """
-let typeCodes = ["images": 1, "video": 2, "voice": 3, "files": 8, "gifs": 11]   // WhatsApp's ZMESSAGETYPE numbers
+let typeCodes = ["images": 1, "video": 2, "voice": 3, "files": 8, "gifs": 11, "stickers": 15]   // WhatsApp's ZMESSAGETYPE numbers
 func fail(_ m: String) -> Never { FileHandle.standardError.write((m + "\n").data(using: .utf8)!); exit(2) }
 var dry = false, months = 3, onlyChat: String? = nil, albumMode = false, limit = Int.max, both = false, countOnly = false
-var types: Set<String> = ["images", "gifs", "files", "voice"]
+var types: Set<String> = ["images", "gifs", "files", "voice", "stickers"]
 var args = Array(CommandLine.arguments.dropFirst())
 func value(_ flag: String) -> String { if args.isEmpty { fail("\(flag) needs a value. Try --help") }; return args.removeFirst() }
 func number(_ flag: String) -> Int { guard let n = Int(value(flag)), n > 0 else { fail("\(flag) needs a whole number above 0") }; return n }
@@ -50,9 +52,9 @@ while !args.isEmpty {
     types = []
     for t in list {
       if t == "all" { types.formUnion(typeCodes.keys) } else if typeCodes[t] != nil { types.insert(t) }
-      else { fail("Unknown type \"\(t)\". Use any of: images, gifs, files, voice, video, all") }
+      else { fail("Unknown type \"\(t)\". Use any of: images, gifs, files, voice, stickers, video, all") }
     }
-    if types.isEmpty { fail("--types needs at least one of: images, gifs, files, voice, video, all") }
+    if types.isEmpty { fail("--types needs at least one of: images, gifs, files, voice, stickers, video, all") }
   default: fail("Unknown option \(a). Try --help")
   }
 }
@@ -68,7 +70,7 @@ func sql(_ q: String) -> [[String]] {
   return String(data: d, encoding: .utf8)!.split(separator: "\n").map { $0.components(separatedBy: "\u{1F}") }
 }
 let since = "(strftime('%s','now','-\(months) months')-978307200)"
-let media = "m.ZMESSAGETYPE IN (" + types.map { String(typeCodes[$0]!) }.sorted().joined(separator: ",") + ")"   // 1 photo, 2 video, 3 audio, 8 document, 11 GIF
+let media = "m.ZMESSAGETYPE IN (" + types.map { String(typeCodes[$0]!) }.sorted().joined(separator: ",") + ")"   // 1 photo, 2 video, 3 audio, 8 document, 11 GIF, 15 sticker
 let missing = "(mi.ZMEDIALOCALPATH IS NULL OR mi.ZMEDIALOCALPATH='')"
 func pending(_ chat: String) -> [String: Int] {   // "yyyy-MM-dd HH:mm|fromMe" -> missing count
   var r: [String: Int] = [:]
@@ -78,13 +80,19 @@ func pending(_ chat: String) -> [String: Int] {   // "yyyy-MM-dd HH:mm|fromMe" -
   return r
 }
 
-let chatQuery = "SELECT s.Z_PK, COALESCE(s.ZPARTNERNAME,s.ZCONTACTJID), COUNT(*) FROM ZWAMESSAGE m JOIN ZWAMEDIAITEM mi ON mi.ZMESSAGE=m.Z_PK JOIN ZWACHATSESSION s ON s.Z_PK=m.ZCHATSESSION WHERE m.ZMESSAGEDATE>\(since) AND \(media) AND \(missing) GROUP BY s.Z_PK ORDER BY s.ZLASTMESSAGEDATE DESC"
+let chatQuery = "SELECT s.Z_PK, COALESCE(s.ZPARTNERNAME,s.ZCONTACTJID), COUNT(*) FROM ZWAMESSAGE m JOIN ZWAMEDIAITEM mi ON mi.ZMESSAGE=m.Z_PK JOIN ZWACHATSESSION s ON s.Z_PK=m.ZCHATSESSION WHERE m.ZMESSAGEDATE>\(since) AND \(media) AND \(missing) GROUP BY s.Z_PK ORDER BY COUNT(*) DESC"   // most open items first
 guard FileManager.default.isReadableFile(atPath: db) else {
   fail("Cannot read WhatsApp's database at \(db).\nIs WhatsApp (App Store version) installed and set up? If it is, give your terminal app Full Disk Access in System Settings > Privacy & Security.")
 }
 if countOnly {
   let rows = sql(chatQuery).filter { onlyChat == nil || $0[1].contains(onlyChat!) }
-  print("\(rows.count) chats, \(rows.reduce(0) { $0 + Int($1[2])! }) missing files"); exit(0)
+  print("\(rows.count) chats, \(rows.reduce(0) { $0 + Int($1[2])! }) missing files")
+  let names = Dictionary(uniqueKeysWithValues: typeCodes.map { (String($1), $0) })
+  let ids = rows.map { $0[0] }.joined(separator: ",")
+  for r in sql("SELECT m.ZMESSAGETYPE, COUNT(*) FROM ZWAMESSAGE m JOIN ZWAMEDIAITEM mi ON mi.ZMESSAGE=m.Z_PK WHERE m.ZCHATSESSION IN (\(ids)) AND m.ZMESSAGEDATE>\(since) AND \(media) AND \(missing) GROUP BY 1 ORDER BY 1") {
+    print("  \(names[r[0]] ?? r[0]): \(r[1])")
+  }
+  exit(0)
 }
 guard let app = NSRunningApplication.runningApplications(withBundleIdentifier: "net.whatsapp.WhatsApp").first else {
   fail("WhatsApp is not running. Open it, wait until your chats show, then try again.")
@@ -194,6 +202,9 @@ func markThere(_ d: String) { there.insert(d); try? there.joined(separator: "\u{
 var blocked = Set((try? String(contentsOfFile: blockFile, encoding: .utf8))?.components(separatedBy: "\u{1E}") ?? [])
 func digits(_ s: String) -> String { s.filter { $0.isNumber } }
 var rowByMouse = false
+var lastStep = "start"
+setvbuf(stdout, nil, _IOLBF, 0)
+let debugRows = ProcessInfo.processInfo.environment["WA_DEBUG_ROWS"] != nil
 func pressEscape() {
   app.activate(); usleep(300000)
   for down in [true, false] { CGEvent(keyboardEventSource: nil, virtualKey: 53, keyDown: down)!.post(tap: .cghidEventTap); usleep(80000) }
@@ -212,10 +223,14 @@ func openChat(_ name: String) -> Bool {
   var prev: [String] = []
   for _ in 0..<80 { act(list, "AXScrollUpByPage"); nap(0.3); let p = page(); if p == prev { break }; prev = p }
   prev = []
+  var tops: [String] = []
+  defer { if tops.count > 0 && debugRows { print("  top rows: \(tops)") } }
   for _ in 0..<80 {
     for b in kids(list) where (attr(b, "AXRole") as? String) == "AXButton" {
       let d = str(b, "AXDescription")
-      if d == name || (!wantDigits.isEmpty && digits(d) == wantDigits) {
+      if tops.count < 6 { tops.append(String(d.prefix(50))) }
+      // A row with unread messages can carry extra text after the name, so accept "name," / "name " prefixes too.
+      if d == name || d.hasPrefix(name + ",") || d.hasPrefix(name + " ") || d.hasPrefix(name + "\n") || (!wantDigits.isEmpty && (digits(d) == wantDigits || digits(d.components(separatedBy: "\n")[0].components(separatedBy: ", ")[0]) == wantDigits)) {
         if rowByMouse { let f = frame(b); realClick(CGPoint(x: f.midX, y: f.midY)) } else { act(b, "AXPress") }
         nap(1.2)
         return true
@@ -256,7 +271,19 @@ var chats = sql(chatQuery)
 if let o = onlyChat { chats = chats.filter { $0[1].contains(o) } }
 print("\(chats.count) chats, \(chats.reduce(0) { $0 + Int($1[2])! }) missing files")
 var totalPressed = 0, albums = 0
-for c in chats {
+// Resume: chats finished in an interrupted pass are listed in done-chats.txt and skipped; the list is cleared when a pass completes.
+let doneFile = "done-chats.txt"
+let keepDone = onlyChat == nil && !dry
+var doneChats = keepDone ? Set((try? String(contentsOfFile: doneFile, encoding: .utf8))?.split(separator: "\n").map(String.init) ?? []) : []
+if !doneChats.isEmpty { print("resuming: \(doneChats.count) chats already finished in this pass") }
+// Chats where the next item is a long scroll away are put off and finished after all the others.
+var later: [[String]] = []
+for round in 0..<2 {
+let patient = round == 1
+if patient && !later.isEmpty { print("-- now the \(later.count) chats that were put off") }
+for c in (patient ? later : chats) {
+  if doneChats.contains(c[0]) { continue }
+  var gaveUp = false, putOff = false
   let name = c[1].replacingOccurrences(of: "\u{202A}", with: "").replacingOccurrences(of: "\u{202C}", with: "").replacingOccurrences(of: "\u{200E}", with: "")
   var pend = pending(c[0])
   _ = closeViewer()
@@ -278,7 +305,7 @@ for c in chats {
   if let b = firstDesc(ax, "Go to most recent message") { act(b, "AXPress"); nap(1.5) }
   print("== \(name): \(c[2]) missing")
   var seen = Set<String>(), stale = 0, pressed = 0, oldest = now, deferred: [String: Int] = [:]
-  var pages = 0, lastPressed = "", losses = 0, fastBanned = ""
+  var pages = 0, lastPressed = "", losses = 0, interruptions = 0, fastBanned = "", lostOnce = Set<String>()
   func chatStillOpen() -> Bool {
     guard first(ax, id: "ChatListView_TableView") != nil, let t = first(ax, id: "ChatMessagesTableView") else { return false }
     let d = str(t, "AXDescription")
@@ -295,24 +322,34 @@ for c in chats {
         if let t = first(ax, id: "ChatMessagesTableView") { table = t }
       }
     }
+    // Window just came back (desktop switch) and is not readable yet: give it up to 20 s before calling the chat lost.
+    if first(ax, id: "ChatListView_TableView") == nil { for _ in 0..<20 where !chatStillOpen() { nap(1.0) }; if let t = first(ax, id: "ChatMessagesTableView") { table = t } }
     if !chatStillOpen() {   // a press took us somewhere else: block that bubble, come back, and scroll to where we were
-      losses += 1
-      print("  LOST the chat after pressing: \(lastPressed.prefix(120))")
-      if !lastPressed.isEmpty { blocked.insert(lastPressed); try? blocked.joined(separator: "\u{1E}").write(toFile: blockFile, atomically: true, encoding: .utf8) }
-      if losses > 25 || !openChat(name) || !chatStillOpen() { print("  giving up on this chat"); break }
+      let repeatLoss = !lastPressed.isEmpty && lostOnce.contains(lastPressed)
+      if repeatLoss { losses += 1 } else { interruptions += 1 }   // first time is treated as an interruption (incoming message, a click by the user), not the bubble's fault
+      print("  LOST the chat after pressing: \(lastPressed.prefix(120)) | now showing: [\(first(ax, id: "ChatMessagesTableView").map { str($0, "AXDescription") } ?? "no chat")] list: \(first(ax, id: "ChatListView_TableView") != nil) step: \(lastStep)")
+      if !lastPressed.isEmpty && !lostOnce.insert(lastPressed).inserted { blocked.insert(lastPressed); try? blocked.joined(separator: "\u{1E}").write(toFile: blockFile, atomically: true, encoding: .utf8) }
+      if !repeatLoss { print("  treating it as an interruption: waiting 30 s, then going back"); nap(30.0) }
+      if losses > 25 || interruptions > 200 || !openChat(name) || !chatStillOpen() { print("  giving up on this chat"); gaveUp = true; break }
       table = first(ax, id: "ChatMessagesTableView")!
       if let b = firstDesc(ax, "Go to most recent message") { act(b, "AXPress"); nap(1.5) }
-      if albumMode { let tf = frame(table); for _ in 0..<pages { realScrollUp(CGPoint(x: tf.midX, y: tf.midY), 260); nap(0.2) } }
-      else { for _ in 0..<pages { act(table, "AXScrollUpByPage"); nap(0.35) } }
+      // Start this chat again from the newest message; what is already fetched is no longer pending, so the fast-forward skips it.
+      seen.removeAll(); deferred.removeAll(); oldest = now; pages = 0; stale = 0; fastBanned = ""
     }
+    lastPressed = ""   // the chat survived the last presses: a later loss is not their fault
     pages += 1
     var fresh = false
     var dup: [String: Int] = [:]
     var lastMinute = ""
     let cells = kids(table).filter { str($0, "AXIdentifier") == "WAMessageBubbleTableViewCell" }
     for cell in cells.reversed() {   // newest first, so an album takes the time of the message after it
-      let desc = str(cell, "AXDescription")
-      if desc.hasPrefix("Album with") || desc.hasPrefix("Your album") {
+      let rawDesc = str(cell, "AXDescription")
+      // A forwarded album is labelled "Forwarded.\nAlbum with ..."; drop that first line so it is treated as an album.
+      var albumDesc = rawDesc
+      for pre in ["Forwarded many times.", "Forwarded."] where albumDesc.hasPrefix(pre) { albumDesc = String(albumDesc.dropFirst(pre.count)).trimmingCharacters(in: .whitespacesAndNewlines) }
+      let isAlbum = albumDesc.hasPrefix("Album with") || albumDesc.hasPrefix("Your album")
+      let desc = isAlbum ? albumDesc : rawDesc
+      if isAlbum {
         let mine = desc.hasPrefix("Your ") ? "1" : "0"
         let day = String(lastMinute.prefix(10))
         let key = desc + "@" + lastMinute
@@ -331,7 +368,7 @@ for c in chats {
           if deferred[key]! < 10 { seen.remove(key) }
           continue
         }
-        realClick(pt); nap(0.7)
+        lastStep = "album click"; realClick(pt); nap(0.7)
         if closeViewer() { print("  already there: \(desc.prefix(80))"); markThere(key) } else { pressed += 1; print("  album clicked: \(desc.prefix(60)) ~\(lastMinute)"); nap(2.0) }
         if !chatStillOpen() { lastPressed = desc; break }
         if pressed >= limit { stale = 99; break }
@@ -355,27 +392,34 @@ for c in chats {
       if blocked.contains(desc) { continue }
       if there.contains(desc) { pend[pk] = n - 1; continue }   // known to be here already: no longer pending
       var kind = desc.lowercased()
-      for pre in ["forwarded many times.", "forwarded.", "your "] { kind = kind.trimmingCharacters(in: .whitespacesAndNewlines); if kind.hasPrefix(pre) { kind = String(kind.dropFirst(pre.count)) } }
+      for pre in ["forwarded many times.", "forwarded."] { kind = kind.trimmingCharacters(in: .whitespacesAndNewlines); if kind.hasPrefix(pre) { kind = String(kind.dropFirst(pre.count)) } }
       kind = kind.trimmingCharacters(in: .whitespacesAndNewlines)
       if kind.hasPrefix("replying to"), let nl = kind.firstIndex(of: "\n") { kind = String(kind[kind.index(after: nl)...]).trimmingCharacters(in: .whitespacesAndNewlines) }
-      guard ["photo", "hd photo", "video", "hd video", "voice message", "audio", "gif", "document", "file"].contains(where: { kind.hasPrefix($0) }) else {
+      if kind.hasPrefix("your ") { kind = String(kind.dropFirst(5)) }
+      guard ["photo", "hd photo", "video", "hd video", "voice message", "audio", "gif", "document", "file", "sticker"].contains(where: { kind.hasPrefix($0) }) else {
         print("  unknown kind, not pressed: \(desc.prefix(110))"); continue
       }
       // Only press the kinds asked for with --types.
-      let want = kind.hasPrefix("gif") ? "gifs" : kind.contains("photo") ? "images" : kind.contains("video") ? "video" : (kind.hasPrefix("document") || kind.hasPrefix("file")) ? "files" : "voice"
+      let want = kind.hasPrefix("gif") ? "gifs" : kind.hasPrefix("sticker") ? "stickers" : kind.contains("photo") ? "images" : kind.contains("video") ? "video" : (kind.hasPrefix("document") || kind.hasPrefix("file")) ? "files" : "voice"
       guard types.contains(want) else { continue }
       if dry { print("  would press: \(desc.prefix(110))"); continue }
       lastPressed = desc
-      act(cell, "AXPress"); nap(0.8)
+      lastStep = "press"; act(cell, "AXPress"); nap(0.8)
       if closeViewer() { print("  already there: \(desc.prefix(80))"); markThere(desc) } else { pend[pk] = n - 1; pressed += 1; nap(0.7) }
     }
     stale = fresh ? 0 : stale + 1
     if stale > 2 { nap(1.5) }   // older history can take a moment to load
     // Fast-forward: when the next thing still to fetch is days older than what is on screen, scroll several pages without reading them.
     let oldestStr = outFmt.string(from: oldest)
+    if !patient, !dry, let next = pend.filter({ $0.value > 0 }).keys.map({ String($0.prefix(16)) }).filter({ $0 < oldestStr }).max(),
+       let nd = outFmt.date(from: next), oldest.timeIntervalSince(nd) > 7 * 86400 {
+      let gap = Int(sql("SELECT COUNT(*) FROM ZWAMESSAGE WHERE ZCHATSESSION=\(c[0]) AND ZMESSAGEDATE BETWEEN \(nd.timeIntervalSinceReferenceDate) AND \(oldest.timeIntervalSinceReferenceDate)").first?.first ?? "0") ?? 0
+      if gap > 1500 { print("  next item (\(next)) is \(gap) messages further back: putting the rest of this chat off until the others are done"); putOff = true; later.append(c); break }
+    }
     if !dry, fresh, let next = pend.filter({ $0.value > 0 }).keys.map({ String($0.prefix(16)) }).filter({ $0 < oldestStr }).max(),
        next != fastBanned, let nd = outFmt.date(from: next), oldest.timeIntervalSince(nd) > 3 * 86400 {
       let jump = albumMode ? 9 : 3
+      lastStep = "fast-forward"
       let tf = frame(table)
       for _ in 0..<jump { if albumMode { realScrollUp(CGPoint(x: tf.midX, y: tf.midY), 260); nap(0.15) } else { act(table, "AXScrollUpByPage"); nap(0.2) } }
       nap(0.5); pages += jump
@@ -388,9 +432,13 @@ for c in chats {
       }
       continue
     }
+    lastStep = "scroll"
     if albumMode { let tf = frame(table); realScrollUp(CGPoint(x: tf.midX, y: tf.midY), 260); nap(0.6) } else { act(table, "AXScrollUpByPage"); nap(0.8) }
   }
   totalPressed += pressed
+  if keepDone && !gaveUp && !putOff { doneChats.insert(c[0]); try? doneChats.joined(separator: "\n").write(toFile: doneFile, atomically: true, encoding: .utf8) }
   print("   pressed \(pressed); reached \(outFmt.string(from: oldest))")
 }
+}
+if keepDone { try? FileManager.default.removeItem(atPath: doneFile) }
 print("DONE pressed \(totalPressed), albums skipped \(albums)")

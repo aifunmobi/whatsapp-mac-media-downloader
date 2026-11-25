@@ -14,7 +14,7 @@ mkdir -p logs
 caffeinate -dims -w $$ &          # keep the Mac and its screen awake for as long as this script runs
 progress=logs/progress.log
 note() { echo "$(date '+%Y-%m-%d %H:%M') $1" | tee -a $progress; }
-count() { ./wa_download "$@" --count | awk '{print $3}'; }   # files still missing
+count() { ./wa_download "$@" --count | awk 'NR==1 {print $3}'; }   # files still missing
 
 # One pass. If most chats could not be opened, WhatsApp is stuck: restart it and try again (3 tries).
 pass() {

@@ -33,7 +33,7 @@ Once media is downloaded, it sits as ordinary files in WhatsApp's folder on the 
 3. For every message that matches a missing file, it "presses" the bubble through macOS's Accessibility feature (the system that screen readers use). WhatsApp then downloads the file as if you had clicked it.
 4. It skips quickly over stretches where nothing is missing, and remembers what it has already handled so later runs are faster.
 
-**Privacy:** everything happens on your Mac. The tool has no network code and sends nothing anywhere. The log and state files it writes (`logs/`, `blocked.txt`, `already-there.txt`) contain chat names and message descriptions, so keep them to yourself. They are excluded from git.
+**Privacy:** everything happens on your Mac. The tool has no network code and sends nothing anywhere. The log and state files it writes (`logs/`, `blocked.txt`, `already-there.txt`, `done-chats.txt`) contain chat names and message descriptions, so keep them to yourself. They are excluded from git.
 
 ## What you need
 
@@ -99,13 +99,13 @@ Then run it for real, the last 3 months, everything except videos:
 
 | Option | What it does | Example |
 |---|---|---|
-| `--types LIST` | What to download: any of `images`, `gifs`, `files` (documents and voice messages), `voice` (voice messages only), `video`, separated by commas, or `all`. Default: everything except video. | `./wa_download --types images,gifs` |
+| `--types LIST` | What to download: any of `images`, `gifs`, `files` (documents and voice messages), `voice` (voice messages only), `stickers`, `video`, separated by commas, or `all`. Default: everything except video. | `./wa_download --types images,gifs` |
 | `--months N` | How far back to go. Default: 3. | `./wa_download --months 12` |
 | `--chat "Name"` | Only chats whose name contains this text. | `./wa_download --chat "Jane Doe"` |
 | `--albums` | Album pass. **Takes over the mouse and the screen**: albums (grid tiles of 2+ photos) only react to real clicks, so the pointer moves by itself and the Mac cannot be used meanwhile (see below). | `./wa_download --albums` |
 | `--all` | Single items and albums in one pass. **Also takes over the mouse and the screen.** | `./wa_download --all --months 6` |
 | `--dry` | Press nothing; print what would be pressed. | `./wa_download --dry` |
-| `--count` | Print the number of missing files and stop. | `./wa_download --count --months 12` |
+| `--count` | Print the number of missing files, in total and by type, and stop. | `./wa_download --count --months 12` |
 | `--limit N` | With `--albums`/`--all`: stop a chat after N album clicks. For testing. | `./wa_download --albums --limit 2` |
 | `--help` | Show the options. | `./wa_download --help` |
 
@@ -116,7 +116,7 @@ Videos are left out by default because they are large; add them with `--types al
 > [!IMPORTANT]
 > **Multi-picture albums need the tool to take over your mouse and screen.** An album is the small grid tile WhatsApp makes from 2 or more photos sent together. Album tiles do not respond to background Accessibility presses, so the tool has to click them with the real mouse pointer. While that runs, WhatsApp must stay in front and visible, the pointer moves by itself, and **the Mac cannot be used for anything else**. Run it when you are away, for example overnight.
 
-**Default: mouse-free.** This covers everything except albums: single photos, GIFs, voice messages, documents and single videos. Nothing touches your mouse or keyboard, so you can keep using the Mac. Conditions: the WhatsApp window must stay open **on the desktop (Space) you are currently on**, not minimised and not closed. It may be hidden behind other windows. If you switch to another desktop or a full-screen app the tool waits until the window is back. Albums are listed as "ALBUM not clicked".
+**Default: mouse-free.** This covers everything except albums: single photos, GIFs, stickers, voice messages, documents and single videos. Nothing touches your mouse or keyboard, so you can keep using the Mac. Conditions: the WhatsApp window must stay open **on the desktop (Space) you are currently on**, not minimised and not closed. It may be hidden behind other windows. If you switch to another desktop or a full-screen app the tool waits until the window is back. Albums are listed as "ALBUM not clicked".
 
 **Album mode: `--albums` (or `--all`).** The tool brings WhatsApp to the front and clicks and scrolls with the real pointer. Do not touch the Mac while it runs; moving the mouse can send a click to the wrong place. `--albums` handles albums only; `--all` does single items and albums together. An album is clicked only when every kind in it (photos, videos) is in your `--types` list.
 
@@ -139,11 +139,41 @@ Videos are left out by default because they are large; add them with `--types al
 ./run.sh --months 12 --types all --all
 ```
 
-Stop it at any time with Ctrl-C.
+Stop it at any time with Ctrl-C. Chats already finished in the interrupted pass are remembered in `done-chats.txt` and skipped when you start again; a chat that was cut off mid-way is done again from its newest message, passing quickly over what is already fetched.
 
 ### How long it takes
 
 It is slow. On the first real run, with roughly 7,900 missing items across about 50 chats, about 2,500 were fetched in the first 4 hours. Expect one or more nights for a large history. A second pass usually picks up what the first one missed.
+
+## Use with an AI assistant
+
+You can let an AI assistant run the tool for you: start it, read the logs, tell you how far it is, and stop it.
+
+**Assistants that can run shell commands** (Claude Code, Codex and similar): open the repository folder with the assistant. [`AGENTS.md`](AGENTS.md) tells it which commands to use, what the log lines mean and what it must not do.
+
+**Assistants that use MCP servers** (Claude Desktop and others): the repository includes a small MCP server, [`mcp/server.py`](mcp/server.py). It needs only the Python that comes with the Xcode Command Line Tools. Add it to your assistant's MCP configuration, with the real path to your copy:
+
+```json
+{
+  "mcpServers": {
+    "whatsapp-media-downloader": {
+      "command": "/usr/bin/python3",
+      "args": ["/path/to/whatsapp-mac-media-downloader/mcp/server.py"]
+    }
+  }
+}
+```
+
+It offers four tools:
+
+| Tool | What it does |
+|---|---|
+| `count_missing` | Counts the missing files, in total and by type. Touches nothing. |
+| `start_download` | Starts `run.sh` in the background. Refuses album mode until you have agreed to give up mouse and screen. |
+| `status` | Says whether a run is in progress and shows the end of the logs. |
+| `stop_download` | Stops the run. |
+
+The permissions go to the app that starts the server (your assistant's app) instead of the terminal: Accessibility, and access to WhatsApp's data. The logs the assistant reads contain chat names and message descriptions, so they are sent to whichever AI service you use. The MCP server is new: counting and status were tested, starting and stopping a real run through it were not.
 
 ## Caveats from real use
 
@@ -159,11 +189,14 @@ These come from the one long run this tool has had.
 8. **Two chats with the same display name** cannot be told apart reliably.
 9. **Voice messages are matched by time only**, because their Accessibility label does not state the sender.
 10. **Matching depends on WhatsApp's exact wording.** Messages from a previous year carry the year in their label, and today's and yesterday's carry only a time; this is handled. Any change in WhatsApp's wording, or a system language other than English, breaks matching.
-11. **Stickers and link previews are not downloaded.**
+11. **Link previews are not downloaded.** Stickers are, since the second day of use.
 12. **The approach is fragile.** An early version closed WhatsApp's main window by mistake when the app was too busy to answer. That is fixed, but check on a long run now and then.
 13. **Measure progress by the missing count, not by presses.** Compare `./wa_download --count` before and after.
 14. **Do not use WhatsApp on the Mac while it runs.** In album mode, do not use the Mac at all.
-15. **Keep the Mac awake and the phone online.** `run.sh` keeps the Mac awake with `caffeinate`; the phone should stay connected so WhatsApp can fetch the files.
+15. **An incoming message, or you clicking another chat, can pull WhatsApp away from the chat being worked on.** The tool treats the first such jump as an interruption: it waits 30 seconds, goes back and starts that chat again from the newest message. Only when the same item loses the chat twice is that item put on the block list. An earlier version went straight back, was pulled away again 26 times in a row and gave up on the chat.
+16. **Chats with the most open items are done first, and long scrolls are put off.** When the next item to fetch in a chat is more than 1,500 messages further back, the tool leaves that chat and finishes it after all the others. Albums that cannot be clicked in mouse-free mode stay on the list, so chats with many albums are still read through slowly. This rule is new and has had little use.
+17. **Do not start a second copy, not even with `--dry`, while a run is in progress.** Both would steer the same WhatsApp window and knock each other out of place. `--count` is safe at any time.
+18. **Keep the Mac awake and the phone online.** `run.sh` keeps the Mac awake with `caffeinate`; the phone should stay connected so WhatsApp can fetch the files.
 
 ## Limitations
 
