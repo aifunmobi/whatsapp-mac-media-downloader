@@ -99,7 +99,7 @@ Then run it for real, the last 3 months, everything except videos:
 
 | Option | What it does | Example |
 |---|---|---|
-| `--types LIST` | What to download: any of `images`, `gifs`, `files` (documents), `voice`, `video`, separated by commas, or `all`. Default: everything except video. | `./wa_download --types images,gifs` |
+| `--types LIST` | What to download: any of `images`, `gifs`, `files` (documents and voice messages), `voice` (voice messages only), `video`, separated by commas, or `all`. Default: everything except video. | `./wa_download --types images,gifs` |
 | `--months N` | How far back to go. Default: 3. | `./wa_download --months 12` |
 | `--chat "Name"` | Only chats whose name contains this text. | `./wa_download --chat "Jane Doe"` |
 | `--albums` | Album pass. **Takes over the mouse and the screen**: albums (grid tiles of 2+ photos) only react to real clicks, so the pointer moves by itself and the Mac cannot be used meanwhile (see below). | `./wa_download --albums` |

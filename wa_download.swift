@@ -10,7 +10,7 @@ Usage: wa_download [options]
 Presses the download arrow on media that WhatsApp for Mac has not downloaded yet.
 
   --types LIST   What to download: a comma list of images, gifs, files, voice, video
-                 (files = documents), or "all". Default: images,gifs,files,voice
+                 (files = documents and voice messages), or "all". Default: images,gifs,files,voice
   --months N     How far back to go, in months. Default: 3
   --chat "Name"  Only chats whose name contains this text
   --albums       Album pass: click multi-picture albums with the REAL mouse. Takes over
@@ -56,6 +56,7 @@ while !args.isEmpty {
   default: fail("Unknown option \(a). Try --help")
   }
 }
+if types.contains("files") { types.insert("voice") }   // "files" covers documents and voice messages
 let noVideo = !types.contains("video")
 setvbuf(stdout, nil, _IOLBF, 0)
 let db = NSHomeDirectory() + "/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite"
