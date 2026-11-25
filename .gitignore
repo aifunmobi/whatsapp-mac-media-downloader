@@ -1,0 +1,9 @@
+# built program
+wa_download
+# logs and state (these contain chat names and message descriptions: never commit them)
+logs/
+*.log
+blocked.txt
+already-there.txt
+*.bak*
+.DS_Store
