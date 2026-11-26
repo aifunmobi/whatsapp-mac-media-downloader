@@ -162,8 +162,17 @@ func reopenMainWindowIfGone() {
   let p = Process(); p.executableURL = URL(fileURLWithPath: "/usr/bin/open"); p.arguments = albumMode ? ["-a", "WhatsApp"] : ["-g", "-a", "WhatsApp"]
   try? p.run(); p.waitUntilExit(); nap(6.0)
 }
+// Pressing a sticker that is already here opens a small popup (Add to Favorites, Edit sticker); cancel it.
+func closePopovers() -> Bool {
+  var closed = false
+  for w in (attr(ax, "AXWindows") as? [AXUIElement] ?? []) {
+    for c in kids(w) where (attr(c, "AXRole") as? String) == "AXPopover" { act(c, "AXCancel"); nap(0.4); closed = true }
+  }
+  return closed
+}
 func closeViewer() -> Bool {
-  var closed = closeExtraWindows()
+  var closed = closePopovers()
+  closed = closeExtraWindows() || closed
   for _ in 0..<6 {   // the viewer can take a moment to open, and one press sometimes is not enough
     guard let b = first(ax, id: "BackButton") else { break }
     act(b, "AXPress"); nap(0.7); closed = true
