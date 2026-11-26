@@ -72,10 +72,10 @@ func sql(_ q: String) -> [[String]] {
 let since = "(strftime('%s','now','-\(months) months')-978307200)"
 let media = "m.ZMESSAGETYPE IN (" + types.map { String(typeCodes[$0]!) }.sorted().joined(separator: ",") + ")"   // 1 photo, 2 video, 3 audio, 8 document, 11 GIF, 15 sticker
 let missing = "(mi.ZMEDIALOCALPATH IS NULL OR mi.ZMEDIALOCALPATH='')"
-func pending(_ chat: String) -> [String: Int] {   // "yyyy-MM-dd HH:mm|fromMe" -> missing count
+func pending(_ chat: String) -> [String: Int] {   // "yyyy-MM-dd HH:mm|fromMe|type" -> missing count
   var r: [String: Int] = [:]
-  for row in sql("SELECT strftime('%Y-%m-%d %H:%M', m.ZMESSAGEDATE+978307200,'unixepoch','localtime'), m.ZISFROMME, COUNT(*) FROM ZWAMESSAGE m JOIN ZWAMEDIAITEM mi ON mi.ZMESSAGE=m.Z_PK WHERE m.ZCHATSESSION=\(chat) AND m.ZMESSAGEDATE>\(since) AND \(media) AND \(missing) GROUP BY 1,2") {
-    r[row[0] + "|" + row[1]] = Int(row[2])!
+  for row in sql("SELECT strftime('%Y-%m-%d %H:%M', m.ZMESSAGEDATE+978307200,'unixepoch','localtime'), m.ZISFROMME, m.ZMESSAGETYPE, COUNT(*) FROM ZWAMESSAGE m JOIN ZWAMEDIAITEM mi ON mi.ZMESSAGE=m.Z_PK WHERE m.ZCHATSESSION=\(chat) AND m.ZMESSAGEDATE>\(since) AND \(media) AND \(missing) GROUP BY 1,2,3") {
+    r[row[0] + "|" + row[1] + "|" + row[2]] = Int(row[3])!
   }
   return r
 }
@@ -364,7 +364,7 @@ for c in (patient ? later : chats) {
         let key = desc + "@" + lastMinute
         guard !lastMinute.isEmpty, seen.insert(key).inserted else { continue }
         fresh = true
-        guard pend.contains(where: { $0.key.hasPrefix(day) && $0.key.hasSuffix("|" + mine) && $0.value > 0 }) else { continue }
+        guard pend.contains(where: { $0.key.hasPrefix(day) && ($0.key.hasSuffix("|" + mine + "|1") || $0.key.hasSuffix("|" + mine + "|2")) && $0.value > 0 }) else { continue }
         if dry { print("  would press: \(desc.prefix(110)) (~\(lastMinute))"); continue }
         if noVideo && desc.lowercased().contains("video") { continue }
         if !types.contains("images") && desc.lowercased().contains("photo") { continue }
@@ -394,12 +394,6 @@ for c in (patient ? later : chats) {
       let key = desc + "#\(dup[desc]!)"
       guard seen.insert(key).inserted else { continue }
       fresh = true
-      // Whose message it is is not always stated (voice messages), so accept a match on either side.
-      let guess = (desc.contains("Sent to ") || desc.hasPrefix("Your ")) ? "1" : "0"
-      let pk = [guess, guess == "1" ? "0" : "1"].map { minute + "|" + $0 }.first { (pend[$0] ?? 0) > 0 } ?? ""
-      guard let n = pend[pk], n > 0 else { if dry && desc.lowercased().contains("gif") { print("  gif not on the missing list: \(desc.prefix(100))") }; continue }
-      if blocked.contains(desc) { continue }
-      if there.contains(desc) { pend[pk] = n - 1; continue }   // known to be here already: no longer pending
       var kind = desc.lowercased()
       for pre in ["forwarded many times.", "forwarded."] { kind = kind.trimmingCharacters(in: .whitespacesAndNewlines); if kind.hasPrefix(pre) { kind = String(kind.dropFirst(pre.count)) } }
       kind = kind.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -411,6 +405,14 @@ for c in (patient ? later : chats) {
       // Only press the kinds asked for with --types.
       let want = kind.hasPrefix("gif") ? "gifs" : kind.hasPrefix("sticker") ? "stickers" : kind.contains("photo") ? "images" : kind.contains("video") ? "video" : (kind.hasPrefix("document") || kind.hasPrefix("file")) ? "files" : "voice"
       guard types.contains(want) else { continue }
+      // Match on type as well as minute: pressing a voice message that is already here plays it aloud.
+      let code = kind.hasPrefix("gif") ? "11" : kind.hasPrefix("sticker") ? "15" : kind.contains("photo") ? "1" : kind.contains("video") ? "2" : (kind.hasPrefix("document") || kind.hasPrefix("file")) ? "8" : "3"
+      // Whose message it is is not always stated (voice messages), so accept a match on either side.
+      let guess = (desc.contains("Sent to ") || desc.hasPrefix("Your ")) ? "1" : "0"
+      let pk = [guess, guess == "1" ? "0" : "1"].map { minute + "|" + $0 + "|" + code }.first { (pend[$0] ?? 0) > 0 } ?? ""
+      guard let n = pend[pk], n > 0 else { if dry && desc.lowercased().contains("gif") { print("  gif not on the missing list: \(desc.prefix(100))") }; continue }
+      if blocked.contains(desc) { continue }
+      if there.contains(desc) { pend[pk] = n - 1; continue }   // known to be here already: no longer pending
       if dry { print("  would press: \(desc.prefix(110))"); continue }
       lastPressed = desc
       lastStep = "press"; act(cell, "AXPress"); nap(0.8)
