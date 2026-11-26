@@ -287,11 +287,17 @@ var doneChats = keepDone ? Set((try? String(contentsOfFile: doneFile, encoding: 
 if !doneChats.isEmpty { print("resuming: \(doneChats.count) chats already finished in this pass") }
 // Chats where the next item is a long scroll away are put off and finished after all the others.
 var later: [[String]] = []
+// Chats where a whole mouse-free run fetched almost nothing are not reopened mouse-free (left for the album run).
+let staleFile = "no-progress-chats.txt"
+var staleChats = albumMode || dry ? Set<String>() : Set((try? String(contentsOfFile: staleFile, encoding: .utf8))?.split(separator: "\n").map(String.init) ?? [])
+func missingIn(_ pk: String) -> Int { Int(sql("SELECT COUNT(*) FROM ZWAMESSAGE m JOIN ZWAMEDIAITEM mi ON mi.ZMESSAGE=m.Z_PK WHERE m.ZCHATSESSION=\(pk) AND m.ZMESSAGEDATE>\(since) AND \(media) AND \(missing)").first?.first ?? "0") ?? 0 }
 for round in 0..<2 {
 let patient = round == 1
 if patient && !later.isEmpty { print("-- now the \(later.count) chats that were put off") }
 for c in (patient ? later : chats) {
   if doneChats.contains(c[0]) { continue }
+  if staleChats.contains(c[0]) { print("== skipping \(c[1]): an earlier mouse-free run got almost nothing here"); continue }
+  let missingBefore = missingIn(c[0])
   var gaveUp = false, putOff = false
   let name = c[1].replacingOccurrences(of: "\u{202A}", with: "").replacingOccurrences(of: "\u{202C}", with: "").replacingOccurrences(of: "\u{200E}", with: "")
   var pend = pending(c[0])
@@ -447,6 +453,9 @@ for c in (patient ? later : chats) {
     if albumMode { let tf = frame(table); realScrollUp(CGPoint(x: tf.midX, y: tf.midY), 260); nap(0.6) } else { act(table, "AXScrollUpByPage"); nap(0.8) }
   }
   totalPressed += pressed
+  if !albumMode && !dry && !gaveUp && !putOff && missingBefore - missingIn(c[0]) < 3 && missingBefore > 0 {
+    staleChats.insert(c[0]); try? staleChats.joined(separator: "\n").write(toFile: staleFile, atomically: true, encoding: .utf8)
+    print("   fetched fewer than 3 here: not reopening this chat mouse-free") }
   if keepDone && !gaveUp && !putOff { doneChats.insert(c[0]); try? doneChats.joined(separator: "\n").write(toFile: doneFile, atomically: true, encoding: .utf8) }
   print("   pressed \(pressed); reached \(outFmt.string(from: oldest))")
 }

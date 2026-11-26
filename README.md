@@ -198,6 +198,7 @@ These come from the one long run this tool has had.
 17. **Do not start a second copy, not even with `--dry`, while a run is in progress.** Both would steer the same WhatsApp window and knock each other out of place. `--count` is safe at any time.
 18. **A locked screen stops everything.** When the display sleeps, macOS usually locks the screen, and the tool can no longer see WhatsApp. `run.sh` keeps the display on; if you start `wa_download` yourself for a long run, use `caffeinate -di ./wa_download …`. `caffeinate -i` alone lets the display sleep and the screen lock.
 19. **Keep the Mac awake and the phone online.** `run.sh` keeps the Mac awake with `caffeinate`; the phone should stay connected so WhatsApp can fetch the files.
+20. **A chat that gives almost nothing in a mouse-free run is not reopened mouse-free.** If a whole mouse-free pass through a chat fetches fewer than 3 items (usually because what is left is albums), the chat is listed in `no-progress-chats.txt` and later mouse-free runs skip it. Album (`--all`) runs still visit it. Delete the file to clear the list.
 
 ## Limitations
 
