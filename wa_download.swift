@@ -71,7 +71,8 @@ func sql(_ q: String) -> [[String]] {
 }
 let since = "(strftime('%s','now','-\(months) months')-978307200)"
 let media = "m.ZMESSAGETYPE IN (" + types.map { String(typeCodes[$0]!) }.sorted().joined(separator: ",") + ")"   // 1 photo, 2 video, 3 audio, 8 document, 11 GIF, 15 sticker
-let missing = "(mi.ZMEDIALOCALPATH IS NULL OR mi.ZMEDIALOCALPATH='')"
+let missing = "(mi.ZMEDIALOCALPATH IS NULL OR mi.ZMEDIALOCALPATH='') AND NOT (m.ZMESSAGETYPE=1 AND EXISTS (SELECT 1 FROM ZWAMESSAGE m2 JOIN ZWAMEDIAITEM i2 ON i2.ZMESSAGE=m2.Z_PK WHERE m2.ZCHATSESSION=m.ZCHATSESSION AND m2.ZISFROMME=m.ZISFROMME AND m2.ZMESSAGETYPE=1 AND i2.ZMEDIALOCALPATH<>'' AND m2.ZMESSAGEDATE BETWEEN m.ZMESSAGEDATE-180 AND m.ZMESSAGEDATE))"
+// A photo with an already-downloaded photo from the same sender in the 3 minutes before it is almost always the hidden HD copy, which WhatsApp never shows or downloads.
 func pending(_ chat: String) -> [String: Int] {   // "yyyy-MM-dd HH:mm|fromMe|type" -> missing count
   var r: [String: Int] = [:]
   for row in sql("SELECT strftime('%Y-%m-%d %H:%M', m.ZMESSAGEDATE+978307200,'unixepoch','localtime'), m.ZISFROMME, m.ZMESSAGETYPE, COUNT(*) FROM ZWAMESSAGE m JOIN ZWAMEDIAITEM mi ON mi.ZMESSAGE=m.Z_PK WHERE m.ZCHATSESSION=\(chat) AND m.ZMESSAGEDATE>\(since) AND \(media) AND \(missing) GROUP BY 1,2,3") {
@@ -278,6 +279,9 @@ let cutoff = cal.date(byAdding: .month, value: -months, to: now)!
 
 var chats = sql(chatQuery)
 if let o = onlyChat { chats = chats.filter { $0[1].contains(o) } }
+// Chats listed (by number) in ignore-chats.txt are never opened.
+let ignored = Set((try? String(contentsOfFile: "ignore-chats.txt", encoding: .utf8))?.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) } ?? [])
+chats = chats.filter { !ignored.contains($0[0]) }
 print("\(chats.count) chats, \(chats.reduce(0) { $0 + Int($1[2])! }) missing files")
 var totalPressed = 0, albums = 0
 // Resume: chats finished in an interrupted pass are listed in done-chats.txt and skipped; the list is cleared when a pass completes.
@@ -299,14 +303,17 @@ for c in (patient ? later : chats) {
   if staleChats.contains(c[0]) { print("== skipping \(c[1]): an earlier mouse-free run got almost nothing here"); continue }
   let missingBefore = missingIn(c[0])
   var gaveUp = false, putOff = false
-  let name = c[1].replacingOccurrences(of: "\u{202A}", with: "").replacingOccurrences(of: "\u{202C}", with: "").replacingOccurrences(of: "\u{200E}", with: "")
+  var name = c[1].replacingOccurrences(of: "\u{202A}", with: "").replacingOccurrences(of: "\u{202C}", with: "").replacingOccurrences(of: "\u{200E}", with: "")
+  let isYou = name == "You"
+  // Your own chat is called "You" in the database but is listed under your number: look it up by number.
+  if name == "You", let jid = sql("SELECT ZCONTACTJID FROM ZWACHATSESSION WHERE Z_PK=\(c[0])").first?.first { name = "+" + digits(String(jid.split(separator: "@")[0])) }
   var pend = pending(c[0])
   _ = closeViewer()
   // Open the chat and wait for it to really show; WhatsApp is sometimes slow or ignores the first press.
   func shown() -> AXUIElement? {
     guard let t = first(ax, id: "ChatMessagesTableView") else { return nil }
     let d = str(t, "AXDescription")
-    return d.hasSuffix("with " + name) || (name.contains("+") && digits(d) == digits(name)) ? t : nil
+    return d.hasSuffix("with " + name) || (isYou && d.replacingOccurrences(of: "\u{200E}", with: "").hasSuffix("with You")) || (name.contains("+") && digits(d) == digits(name)) ? t : nil
   }
   var opened: AXUIElement? = nil, found = false
   for attempt in 0..<4 where opened == nil {
@@ -324,7 +331,7 @@ for c in (patient ? later : chats) {
   func chatStillOpen() -> Bool {
     guard first(ax, id: "ChatListView_TableView") != nil, let t = first(ax, id: "ChatMessagesTableView") else { return false }
     let d = str(t, "AXDescription")
-    return d.hasSuffix("with " + name) || (name.contains("+") && digits(d) == digits(name))
+    return d.hasSuffix("with " + name) || (isYou && d.replacingOccurrences(of: "\u{200E}", with: "").hasSuffix("with You")) || (name.contains("+") && digits(d) == digits(name))
   }
   while stale < 10 && oldest > cutoff {
     _ = closeViewer()
@@ -383,7 +390,15 @@ for c in (patient ? later : chats) {
           if deferred[key]! < 10 { seen.remove(key) }
           continue
         }
-        lastStep = "album click"; realClick(pt); nap(0.7)
+        // Before a real click, check that the point is really on this album: a stale position can land on a voice message and play it.
+        app.activate(); nap(0.4)
+        let f2 = frame(cell), pt2 = CGPoint(x: f2.midX, y: f2.midY)
+        var hit: AXUIElement? = nil
+        AXUIElementCopyElementAtPosition(ax, Float(pt2.x), Float(pt2.y), &hit)
+        var onCell = false, h = hit
+        for _ in 0..<12 { guard let e = h else { break }; if CFEqual(e, cell) { onCell = true; break }; h = attr(e, "AXParent").map { $0 as! AXUIElement } }
+        if !onCell || f2 != f { print("  album not under the pointer, not clicked yet: \(desc.prefix(60))"); deferred[key, default: 0] += 1; if deferred[key]! < 10 { seen.remove(key) }; continue }
+        lastStep = "album click"; realClick(pt2); nap(0.7)
         if closeViewer() { print("  already there: \(desc.prefix(80))"); markThere(key) } else { pressed += 1; print("  album clicked: \(desc.prefix(60)) ~\(lastMinute)"); nap(2.0) }
         if !chatStillOpen() { lastPressed = desc; break }
         if pressed >= limit { stale = 99; break }

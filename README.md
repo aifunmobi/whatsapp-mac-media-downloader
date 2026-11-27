@@ -199,6 +199,10 @@ These come from the one long run this tool has had.
 18. **A locked screen stops everything.** When the display sleeps, macOS usually locks the screen, and the tool can no longer see WhatsApp. `run.sh` keeps the display on; if you start `wa_download` yourself for a long run, use `caffeinate -di ./wa_download …`. `caffeinate -i` alone lets the display sleep and the screen lock.
 19. **Keep the Mac awake and the phone online.** `run.sh` keeps the Mac awake with `caffeinate`; the phone should stay connected so WhatsApp can fetch the files.
 20. **A chat that gives almost nothing in a mouse-free run is not reopened mouse-free.** If a whole mouse-free pass through a chat fetches fewer than 3 items (usually because what is left is albums), the chat is listed in `no-progress-chats.txt` and later mouse-free runs skip it. Album (`--all`) runs still visit it. Delete the file to clear the list.
+21. **Hidden HD copies are not counted.** When someone sends a photo in HD, WhatsApp stores a normal copy and a full-quality copy. The full-quality copy is never shown in the chat and is not downloaded, but the database lists it as missing. A photo is therefore skipped when the same sender has an already-downloaded photo in the 3 minutes before it. This rule is approximate and can skip a real photo sent right after another.
+22. **Chats can be ignored.** Put chat numbers (`Z_PK` from `ZWACHATSESSION`), one per line, in `ignore-chats.txt`, for example archived chats that are not in the chat list.
+23. **Album clicks are checked first.** Before a real click, the tool asks macOS what is under the pointer and clicks only if it is the album, so a moving chat does not make it click (and play) a voice message instead. Voice messages have still been heard playing during album runs without any logged press; the cause is not known yet.
+24. **Your own chat** ("You" in the database) is found by your number in the chat list.
 
 ## Limitations
 

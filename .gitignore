@@ -9,3 +9,4 @@ done-chats.txt
 *.bak*
 .DS_Store
 no-progress-chats.txt
+ignore-chats.txt
